@@ -3,6 +3,7 @@ import io
 import os
 import re
 import tempfile
+from datetime import datetime
 from copy import deepcopy
 from docx import Document
 from docx.document import Document as DocxDocument
@@ -156,6 +157,17 @@ def montar_nome_arquivo(componente, data_atividade, extensao="docx"):
 
     nome_base = "-".join(partes)
     return f"{nome_base}.{extensao}"
+
+
+def obter_data_para_widget(data_atividade):
+    """Converte a data salva em texto para o formato aceito pelo date_input."""
+    if not data_atividade.strip():
+        return None
+
+    try:
+        return datetime.strptime(data_atividade, "%d/%m/%Y").date()
+    except ValueError:
+        return None
 
 
 def _obter_texto_paragrafo(paragraph):
@@ -707,12 +719,14 @@ def main():
             )
             st.session_state.componente = componente
         with col_cfg2:
-            data_atividade = st.text_input(
+            data_selecionada = st.date_input(
                 "Data",
-                value=st.session_state.data_atividade,
-                placeholder="Ex: 27/07/2026",
+                value=obter_data_para_widget(st.session_state.data_atividade),
+                format="DD/MM/YYYY",
             )
-            st.session_state.data_atividade = data_atividade
+            st.session_state.data_atividade = (
+                data_selecionada.strftime("%d/%m/%Y") if data_selecionada else ""
+            )
         with col_cfg3:
             professor = st.text_input(
                 "Professor(a)",
