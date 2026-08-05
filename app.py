@@ -44,23 +44,24 @@ def formatar_alternativas_markdown(alternativas):
     return "\n".join(partes)
 
 
-def normalizar_alternativas(alternativas_texto):
-    """Converte o texto livre das alternativas em uma lista limpa."""
-    return [
-        linha.strip()
-        for linha in alternativas_texto.strip().split("\n")
-        if linha.strip()
-    ]
+def normalizar_linhas_em_branco(linhas_em_branco):
+    """Garante uma quantidade valida de linhas em branco para a resposta."""
+    try:
+        return max(1, int(linhas_em_branco))
+    except (TypeError, ValueError):
+        return 5
 
 
-def inserir_questao(enunciado, alternativas_texto):
+def inserir_questao(enunciado, linhas_em_branco):
     """Adiciona uma questão ao session_state."""
     if not enunciado.strip():
         st.warning("Por favor, insira o enunciado da questão.")
         return
-    alternativas = normalizar_alternativas(alternativas_texto)
     st.session_state.questoes.append(
-        {"enunciado": enunciado.strip(), "alternativas": alternativas}
+        {
+            "enunciado": enunciado.strip(),
+            "linhas_em_branco": normalizar_linhas_em_branco(linhas_em_branco),
+        }
     )
     st.success(f"Questão {len(st.session_state.questoes)} inserida com sucesso!")
 
@@ -71,7 +72,7 @@ def limpar_questoes():
     st.info("Todas as questões foram removidas.")
 
 
-def atualizar_questao(indice, enunciado, alternativas_texto):
+def atualizar_questao(indice, enunciado, linhas_em_branco):
     """Atualiza uma questão existente no session_state."""
     if not enunciado.strip():
         st.warning("Por favor, insira o enunciado da questão.")
@@ -79,7 +80,7 @@ def atualizar_questao(indice, enunciado, alternativas_texto):
 
     st.session_state.questoes[indice] = {
         "enunciado": enunciado.strip(),
-        "alternativas": normalizar_alternativas(alternativas_texto),
+        "linhas_em_branco": normalizar_linhas_em_branco(linhas_em_branco),
     }
     st.success(f"Questão {indice + 1} atualizada com sucesso!")
     return True
@@ -105,7 +106,7 @@ def confirmar_limpeza_questoes():
 def editar_questao_dialog(indice):
     """Abre um popup para editar uma questão existente."""
     questao = st.session_state.questoes[indice]
-    alternativas_iniciais = "\n".join(questao["alternativas"])
+    linhas_iniciais = questao.get("linhas_em_branco", 5)
 
     with st.form(key=f"form_editar_questao_{indice}"):
         enunciado = st.text_area(
@@ -113,10 +114,11 @@ def editar_questao_dialog(indice):
             value=questao["enunciado"],
             height=150,
         )
-        alternativas_texto = st.text_area(
-            "Alternativas (uma por linha, deixe em branco para questão discursiva)",
-            value=alternativas_iniciais,
-            height=150,
+        linhas_em_branco = st.number_input(
+            "Quantidade de linhas em branco para resposta",
+            min_value=1,
+            step=1,
+            value=normalizar_linhas_em_branco(linhas_iniciais),
         )
         col_cancelar, col_salvar = st.columns(2)
         with col_cancelar:
@@ -131,7 +133,7 @@ def editar_questao_dialog(indice):
         if cancelar:
             st.rerun()
 
-        if salvar and atualizar_questao(indice, enunciado, alternativas_texto):
+        if salvar and atualizar_questao(indice, enunciado, linhas_em_branco):
             st.rerun()
 
 
@@ -481,18 +483,18 @@ def _remover_ou_limpar_bloco_questao(documento, numero_questao, manter_conteudo)
 def construir_texto_questao(questao):
     """
     Monta o texto bruto de uma questão com enunciado, quebras de linha e
-    alternativas formatadas com letras (a), (b), etc. Retorna string com '\n'.
+    linhas em branco para resposta. Retorna string com '\n'.
     """
     partes = []
     partes.append(questao["enunciado"])
-    if questao["alternativas"]:
+    alternativas = questao.get("alternativas", [])
+    if alternativas:
         letras = "abcdefghijklmnopqrstuvwxyz"
-        for idx, alt in enumerate(questao["alternativas"]):
+        for idx, alt in enumerate(alternativas):
             letra = letras[idx] if idx < len(letras) else str(idx + 1)
             partes.append(f"({letra}) {alt}")
     else:
-        partes.append("")
-        partes.append("")
+        partes.extend([""] * normalizar_linhas_em_branco(questao.get("linhas_em_branco", 5)))
     return "\n".join(partes)
 
 
@@ -511,13 +513,39 @@ def processar_substituicoes(
     - Substitui também marcadores de cabeçalho opcionais: <<Componente>>, <<Data>>, <<Professor>>
     """
     substituicoes = {}
-    substituicoes["<<Componente>>"] = componente or ""
-    substituicoes["<<Data>>"] = data_atividade or ""
-    substituicoes["<<Professor>>"] = professor or ""
-    substituicoes["<<ANO_SERIE>>"] = ano_serie or ""
-    substituicoes["<<AnoSerie>>"] = ano_serie or ""
+    valor_componente = componente or ""
+    valor_data = data_atividade or ""
+    valor_professor = professor or ""
+    valor_ano_serie = ano_serie or ""
+
+    for marcador in [
+        "<<Componente>>",
+        "<<COMPONENTE>>",
+        "<<ComponenteCurricular>>",
+        "<<COMPONENTE_CURRICULAR>>",
+    ]:
+        substituicoes[marcador] = valor_componente
+
+    for marcador in [
+        "<<Data>>",
+        "<<DATA>>",
+        "<<DataAtividade>>",
+        "<<DATA_ATIVIDADE>>",
+    ]:
+        substituicoes[marcador] = valor_data
+
+    for marcador in [
+        "<<Professor>>",
+        "<<PROFESSOR>>",
+        "<<Professor(a)>>",
+        "<<PROFESSOR(A)>>",
+    ]:
+        substituicoes[marcador] = valor_professor
+
+    substituicoes["<<ANO_SERIE>>"] = valor_ano_serie
+    substituicoes["<<AnoSerie>>"] = valor_ano_serie
     for opcao_ano in OPCOES_ANO:
-        substituicoes[f"<<{opcao_ano}>>"] = ano_serie or ""
+        substituicoes[f"<<{opcao_ano}>>"] = valor_ano_serie
 
     usa_bloco_generico = _expandir_bloco_generico_questoes(documento, questoes)
 
@@ -758,20 +786,16 @@ def main():
                 height=150,
                 placeholder="Digite aqui o enunciado completo da questão...",
             )
-            alternativas_texto = st.text_area(
-                "Alternativas (uma por linha, deixe em branco para questão discursiva)",
-                height=150,
-                placeholder=(
-                    "Digite uma alternativa por linha:\n"
-                    "Alternativa A\n"
-                    "Alternativa B\n"
-                    "Alternativa C\n"
-                    "\nDeixe em branco para questão discursiva."
-                ),
+            linhas_em_branco = st.number_input(
+                "Quantidade de linhas em branco para resposta",
+                min_value=1,
+                step=1,
+                value=5,
+                help="Define quantas linhas em branco serao adicionadas abaixo da questao no documento.",
             )
             submit = st.form_submit_button("Inserir na Atividade", type="primary")
             if submit:
-                inserir_questao(enunciado, alternativas_texto)
+                inserir_questao(enunciado, linhas_em_branco)
 
         st.markdown("---")
         if st.button("🗑️  Limpar Todas as Questões", type="secondary"):
@@ -852,10 +876,14 @@ def main():
                         if st.button("Editar", key=f"editar_questao_{idx}"):
                             editar_questao_dialog(idx - 1)
                     st.markdown(f"**{questao['enunciado']}**")
-                    if questao["alternativas"]:
-                        st.markdown(formatar_alternativas_markdown(questao["alternativas"]))
+                    alternativas = questao.get("alternativas", [])
+                    if alternativas:
+                        st.markdown(formatar_alternativas_markdown(alternativas))
                     else:
-                        st.caption("💬 Questão discursiva — espaço para resposta")
+                        st.caption(
+                            "💬 Questão discursiva — "
+                            f"{normalizar_linhas_em_branco(questao.get('linhas_em_branco', 5))} linhas para resposta"
+                        )
 
             st.markdown("---")
             st.caption(f"Total de questões: **{len(st.session_state.questoes)}**")
